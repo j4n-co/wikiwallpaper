@@ -4,16 +4,17 @@ const xml2js = require('xml2js').parseString;
 const MWTitle = require( 'mediawiki-title' );
 const SiteInfo = require('./siteinfo.json');
 const font = Jimp.loadFont( Jimp.FONT_SANS_32_WHITE )
+const fs = require('fs');
 
 function getParams( title, size ){
     function getMwTitle( title ) {
         return MWTitle.Title.newFromText( title, SiteInfo, 6 ).getKey();
     }
     function getWidth( size ) {
-        return parseInt( size.split('x')[0], 10 ) || 800;
+        return size ? parseInt( size.split('x')[0], 10 ) : 800;
     }
     function getHeight( size ) {
-        return parseInt( size.split('x')[1], 10 ) || 800;
+        return size ? parseInt( size.split('x')[1], 10 ) : 800;
     }
     function fileInfoUrl( title ) {
         return `https://tools.wmflabs.org/magnus-toolserver/commonsapi.php?image=${getMwTitle( title )}`;
@@ -94,16 +95,18 @@ function createWallpaper( fileInfo, jimpImg, font, wordmark, params ) {
             var line1 = textLine( fileInfo.name + ' - ' + fileInfo.author, 150 );
             var line2 = textLine( fileInfo.license + ' - ' + fileInfo.description, 100 );
 
-            var img = jimpImg
+            var imgBuffer = jimpImg
                 .cover( params.width, params.height )
                 .composite( wordmark,  (params.width/2) - (wordmark.bitmap.width/2), (params.height/2) - (wordmark.bitmap.height/2) )
                 .print(font, line1.x, line1.y, line1.text)
-                .print(font, line2.x, line2.y, line2.text);
-
-            return img.getBase64( Jimp.AUTO, function( buffer ) { return buffer } );
-                //.write(`./${fileInfo.name}.jpg`);
+                .print(font, line2.x, line2.y, line2.text)
+                .getBuffer( Jimp.AUTO , (err, buffer) => {
+                    return buffer;
+                })
+            return imgBuffer;
         } )
         .catch(function (err) {
+            console.log( 'there was an error with Promise.all' )
             console.log(err)
         });
 }
@@ -112,13 +115,13 @@ function createWallpaper( fileInfo, jimpImg, font, wordmark, params ) {
 
 function init(req, res) {
     // const params = getParams( '2009-04-18-noerdlingen-rr-14.jpg', '2560x1600');
-    if ( !req.params.name || !req.params.name) {
+    if ( !req.query.name ) {
         return res
             .status(400)
-            .send(`Bad request! url needs to have a name and size parameter.`)
+            .send(req.query)
             .end();
     }
-    const params = getParams( req.params.name, req.params.size);
+    const params = getParams( req.query.name, req.query.size);
     const fileInfo = getFileInfo( params.fileInfoUrl ).then( getFileData )
     const jimpImg = fileInfo.then( createJimpImg );
     const wordmark = Jimp.read('./wikimedia_logo.png')
@@ -127,11 +130,9 @@ function init(req, res) {
     const wallpaper = createWallpaper( fileInfo, jimpImg, font, wordmark, params );
 
     return wallpaper.then( buffer => {
-        console.log( buffer )
-        res.setHeader("content-type", "image/jpeg")
-            .status(200)
-            .send( buffer )
-            .end();
+        let readStream = fs.createReadStream( buffer );
+        res.setHeader("content-type", "image/jpeg");
+        return readStream.pipe(res);
     })
 };
 
