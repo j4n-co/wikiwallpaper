@@ -94,12 +94,14 @@ function createWallpaper( fileInfo, jimpImg, font, wordmark, params ) {
             var line1 = textLine( fileInfo.name + ' - ' + fileInfo.author, 150 );
             var line2 = textLine( fileInfo.license + ' - ' + fileInfo.description, 100 );
 
-            return jimpImg
+            var img = jimpImg
                 .cover( params.width, params.height )
                 .composite( wordmark,  (params.width/2) - (wordmark.bitmap.width/2), (params.height/2) - (wordmark.bitmap.height/2) )
                 .print(font, line1.x, line1.y, line1.text)
-                .print(font, line2.x, line2.y, line2.text)
-                .write(`./${fileInfo.name}.jpg`);
+                .print(font, line2.x, line2.y, line2.text);
+
+            return img.getBase64( Jimp.AUTO, function( buffer ) { return buffer } );
+                //.write(`./${fileInfo.name}.jpg`);
         } )
         .catch(function (err) {
             console.log(err)
@@ -110,15 +112,27 @@ function createWallpaper( fileInfo, jimpImg, font, wordmark, params ) {
 
 function init(req, res) {
     // const params = getParams( '2009-04-18-noerdlingen-rr-14.jpg', '2560x1600');
-    const params = getParams( req.body.title, req.body.size);
+    if ( !req.params.name || !req.params.name) {
+        return res
+            .status(400)
+            .send(`Bad request! url needs to have a name and size parameter.`)
+            .end();
+    }
+    const params = getParams( req.params.name, req.params.size);
     const fileInfo = getFileInfo( params.fileInfoUrl ).then( getFileData )
     const jimpImg = fileInfo.then( createJimpImg );
     const wordmark = Jimp.read('./wikimedia_logo.png')
                         .then( img => img.contain( params.width / 4, params.height / 4 ) );
 
     const wallpaper = createWallpaper( fileInfo, jimpImg, font, wordmark, params );
-    return wallpaper;
-    // res.status(200).send(wallpaper);
+
+    return wallpaper.then( buffer => {
+        console.log( buffer )
+        res.setHeader("content-type", "image/jpeg")
+            .status(200)
+            .send( buffer )
+            .end();
+    })
 };
 
 exports.init = init;
